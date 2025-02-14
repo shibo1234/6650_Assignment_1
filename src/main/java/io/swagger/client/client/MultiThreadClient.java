@@ -5,10 +5,12 @@ import io.swagger.client.record.RequestRecord;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -24,7 +26,10 @@ public class MultiThreadClient {
   private static final int NUM_REQUESTS = 200_000;
   private static final int REQUESTS_PER_THREAD = 1000;
 
-  private static final List<RequestRecord> records = Collections.synchronizedList(new ArrayList<>());
+  private static final BlockingQueue<RequestRecord> recordQueue = new LinkedBlockingQueue<>();
+
+  private static final List<RequestRecord> allRecords = new ArrayList<>();
+
 
   /**
    * Main method to start the client
@@ -32,6 +37,8 @@ public class MultiThreadClient {
    * @throws InterruptedException
    */
   public static void main(String[] args) throws InterruptedException {
+    writeRecordsToCSV();
+
     EventGenerator eventGenerator = new EventGenerator();
     ExecutorService eventExecutor = Executors.newSingleThreadExecutor();
     eventExecutor.execute(eventGenerator);
@@ -42,7 +49,7 @@ public class MultiThreadClient {
 //    apiClient.setBasePath("http://localhost:8081/6650Lab2_war_exploded");
 //    apiClient.setBasePath("http://107.22.1.205:8080/6650Lab2-1.0-SNAPSHOT");
 //    apiClient.setBasePath("http://ec2-user@ec2-user@ec2-35-87-100-165.us-west-2.compute.amazonaws.com:8080/cs6650lab2_war/skiers/");
-    apiClient.setBasePath("http://ec2-user@ec2-34-217-179-217.us-west-2.compute.amazonaws.com:8080/cs6650lab2_war/skiers/");
+    apiClient.setBasePath("http://34.230.29.71:8080/6650Lab2-1.0-SNAPSHOT");
 
     long startTime = System.currentTimeMillis();
 
@@ -51,10 +58,12 @@ public class MultiThreadClient {
     AtomicInteger totalRequests = new AtomicInteger(0);
 
     ExecutorService requestExecutor = Executors.newFixedThreadPool(NUM_THREADS);
+    ThreadPoolExecutor threadPoolExecutor = (ThreadPoolExecutor) requestExecutor;
 
     for (int i = 0; i < NUM_THREADS; i++) {
-      RequestTask requestTask = new RequestTask(new SkiersApi(apiClient), successCount, failCount, REQUESTS_PER_THREAD, records);
+      RequestTask requestTask = new RequestTask(new SkiersApi(apiClient), successCount, failCount, REQUESTS_PER_THREAD, recordQueue);
       requestExecutor.execute(requestTask);
+      System.out.println("Active threads: " + threadPoolExecutor.getActiveCount());
     }
 
     requestExecutor.shutdown();
@@ -71,9 +80,11 @@ public class MultiThreadClient {
 
     while (successCount.get() + failCount.get() < NUM_REQUESTS) {
       ExecutorService newRequestExecutor = Executors.newFixedThreadPool(200);
+      ThreadPoolExecutor newThreadPoolExecutor = (ThreadPoolExecutor) newRequestExecutor;
       for (int i = 0; i < 200; i++) {
-        RequestTaskWithoutLimit requestTask = new RequestTaskWithoutLimit(new SkiersApi(apiClient), successCount, failCount, records);
+        RequestTaskWithoutLimit requestTask = new RequestTaskWithoutLimit(new SkiersApi(apiClient), successCount, failCount, recordQueue);
         newRequestExecutor.execute(requestTask);
+        System.out.println("Active threads: " + newThreadPoolExecutor.getActiveCount());
       }
       newRequestExecutor.shutdown();
 
@@ -96,26 +107,36 @@ public class MultiThreadClient {
     System.out.println("Total duration: " + totalDurationInMs + "ms");
     System.out.println("Throughput: " + throughput + " requests/second");
 
-    writeRecordsToCSV(records);
+
+    List<RequestRecord> records = new ArrayList<>(allRecords);
     analyzePerformance(records);
   }
 
   /**
    * Write the request records to a CSV file
-   * @param records
+   *
    */
-  private static void writeRecordsToCSV(List<RequestRecord> records) {
-    try (PrintWriter writer = new PrintWriter("request_records.csv")) {
-      writer.println("start_time,request_type,latency,response_code");
-      for (RequestRecord record : records) {
-        writer.println(record.getStartTime() + ","
-            + record.getRequestType() + ","
-            + record.getLatency() + ","
-            + record.getResponseCode());
+  private static void writeRecordsToCSV() {
+    Thread csvWriterThread = new Thread(() -> {
+      try (PrintWriter writer = new PrintWriter("request_records.csv")) {
+        writer.println("start_time,request_type,latency,response_code");
+        while (true) {
+          RequestRecord record = recordQueue.take();
+          synchronized (allRecords) {
+            allRecords.add(record);
+          }
+          writer.println(record.getStartTime() + ","
+              + record.getRequestType() + ","
+              + record.getLatency() + ","
+              + record.getResponseCode());
+          writer.flush();
+        }
+      } catch (IOException | InterruptedException e) {
+        e.printStackTrace();
       }
-    } catch (IOException e) {
-      e.printStackTrace();
-    }
+    });
+    csvWriterThread.setDaemon(true);
+    csvWriterThread.start();
   }
 
 

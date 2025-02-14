@@ -4,6 +4,7 @@ import io.swagger.client.api.SkiersApi;
 import io.swagger.client.model.LiftRide;
 import io.swagger.client.record.RequestRecord;
 import java.util.List;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -13,7 +14,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class RequestTask extends Request {
   private final int requestsPerThread;
 
-  public RequestTask(SkiersApi apiInstance, AtomicInteger successCount, AtomicInteger failCount, int requestsPerThread, List<RequestRecord> records) {
+  public RequestTask(SkiersApi apiInstance, AtomicInteger successCount, AtomicInteger failCount, int requestsPerThread, BlockingQueue<RequestRecord> records) {
     super(apiInstance, successCount, failCount, records);
     this.requestsPerThread = requestsPerThread;
   }

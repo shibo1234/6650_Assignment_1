@@ -3,8 +3,8 @@ import io.swagger.client.ApiException;
 import io.swagger.client.api.SkiersApi;
 import io.swagger.client.model.LiftRide;
 import io.swagger.client.record.RequestRecord;
-import java.util.List;
 import java.util.Random;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -13,9 +13,9 @@ public abstract class Request implements Runnable {
   protected final Random random = new Random();
   protected final AtomicInteger successCount;
   protected final AtomicInteger failCount;
-  protected final List<RequestRecord> records;
+  protected final BlockingQueue records;
 
-  public Request(SkiersApi apiInstance, AtomicInteger successCount, AtomicInteger failCount, List<RequestRecord> records) {
+  public Request(SkiersApi apiInstance, AtomicInteger successCount, AtomicInteger failCount, BlockingQueue<RequestRecord> records) {
     this.apiInstance = apiInstance;
     this.successCount = successCount;
     this.failCount = failCount;
@@ -38,19 +38,16 @@ public abstract class Request implements Runnable {
         long endTime = System.currentTimeMillis();
         long latency = endTime - startTime;
 
-        synchronized (records) {
-          records.add(new RequestRecord(startTime, latency, 201, "POST"));
-        }
+        records.add(new RequestRecord(startTime, latency, 201, "POST"));
+//        System.out.println("Request sent successfully");
         return true;
       } catch (ApiException e) {
         retry++;
         if (retry == 5) {
           System.out.println("http status code" + e.getCode());
           System.out.println("retry count: " + retry);
-
-          synchronized (records) {
-            records.add(new RequestRecord(startTime, 0, e.getCode(), "POST"));
-          }
+          records.add(new RequestRecord(startTime, 0, e.getCode(), "POST"));
+//          System.out.println("Failed to send request");
           e.printStackTrace();
         }
       }
